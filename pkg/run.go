@@ -4,13 +4,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/goodwithtech/dockle/pkg/assessor/manifest"
 	l "log"
 	"os"
 	"strings"
 
+	"github.com/goodwithtech/dockle/pkg/assessor/credential"
+	"github.com/goodwithtech/dockle/pkg/assessor/manifest"
+
 	"github.com/containers/image/v5/transports/alltransports"
-	deckodertypes "github.com/goodwithtech/deckoder/types"
 
 	"github.com/goodwithtech/dockle/config"
 	"github.com/goodwithtech/dockle/pkg/utils"
@@ -19,51 +20,56 @@ import (
 
 	"github.com/goodwithtech/dockle/pkg/scanner"
 
-	"github.com/urfave/cli"
+	"github.com/urfave/cli/v3"
 
 	"github.com/goodwithtech/dockle/pkg/log"
 	"github.com/goodwithtech/dockle/pkg/types"
 )
 
-func Run(c *cli.Context) (err error) {
-	ctx, cancel := context.WithTimeout(context.Background(), c.Duration("timeout"))
+func Run(baseCtx context.Context, cmd *cli.Command) (err error) {
+	ctx, cancel := context.WithTimeout(baseCtx, cmd.Duration("timeout"))
 	defer cancel()
-	debug := c.Bool("debug")
-	quiet := c.Bool("quiet")
+	debug := cmd.Bool("debug")
+	quiet := cmd.Bool("quiet")
 	if err = log.InitLogger(debug, quiet); err != nil {
 		l.Fatal(err)
 	}
 
-	config.CreateFromCli(c)
+	config.CreateFromCli(cmd)
 
-	cliVersion := "v" + c.App.Version
-	latestVersion, err := utils.FetchLatestVersion(ctx)
-
-	// check latest version
-	if err != nil {
-		log.Logger.Infof("Failed to check latest version. %s", err)
-	} else if cliVersion != latestVersion && c.App.Version != "dev" {
-		log.Logger.Warnf("A new version %s is now available! You have %s.", latestVersion, cliVersion)
+	cliVersion := "v" + cmd.Root().Version
+	if cmd.Bool("version-check") {
+		latestVersion, err := utils.FetchLatestVersion(ctx)
+		// check latest version
+		if err != nil {
+			log.Logger.Infof("Failed to check latest version. %s", err)
+		} else if cliVersion != latestVersion && cmd.Root().Version != "dev" {
+			log.Logger.Warnf("A new version %s is now available! You have %s.", latestVersion, cliVersion)
+		}
+	} else {
+		log.Logger.Debug("Skipped update confirmation")
 	}
 
-	args := c.Args()
-	filePath := c.String("input")
-	if filePath == "" && len(args) == 0 {
+	args := cmd.Args()
+	filePath := cmd.String("input")
+	if filePath == "" && args.Len() == 0 {
 		log.Logger.Info(`"dockle" requires at least 1 argument or --input option.`)
-		cli.ShowAppHelpAndExit(c, 1)
+		cli.ShowRootCommandHelpAndExit(cmd, 1)
 		return
 	}
 	// set docker option
-	dockerOption := deckodertypes.DockerOption{
-		Timeout:               c.Duration("timeout"),
-		UserName:              c.String("username"),
-		Password:              c.String("password"),
-		InsecureSkipTLSVerify: c.Bool("insecure"),
+	dockerOption := types.DockerOption{
+		Timeout:               cmd.Duration("timeout"),
+		UserName:              cmd.String("username"),
+		Password:              cmd.String("password"),
+		InsecureSkipTLSVerify: cmd.Bool("insecure"),
+		DockerDaemonHost:      getDockerSockPath(cmd),
+		DockerDaemonCertPath:  cmd.String("cert-path"),
 		SkipPing:              true,
 	}
 	var imageName string
 	if filePath == "" {
-		imageName = args[0]
+		imageName = args.First()
 	}
 
 	var useLatestTag bool
@@ -73,9 +79,12 @@ func Run(c *cli.Context) (err error) {
 			return fmt.Errorf("invalid image: %w", err)
 		}
 	}
-	manifest.AddAcceptanceKeys(c.StringSlice("accept-key"))
-	scanner.AddAcceptanceFiles(c.StringSlice("accept-file"))
-	scanner.AddAcceptanceExtensions(c.StringSlice("accept-file-extension"))
+	manifest.AddSensitiveWords(cmd.StringSlice("sensitive-word"))
+	manifest.AddAcceptanceKeys(cmd.StringSlice("accept-key"))
+	credential.AddSensitiveFiles(cmd.StringSlice("sensitive-file"))
+	scanner.AddAcceptanceFiles(cmd.StringSlice("accept-file"))
+	credential.AddSensitiveFileExtensions(cmd.StringSlice("sensitive-file-extension"))
+	scanner.AddAcceptanceExtensions(cmd.StringSlice("accept-file-extension"))
 	log.Logger.Debug("Start assessments...")
 	assessments, err := scanner.ScanImage(ctx, imageName, filePath, dockerOption)
 	if err != nil {
@@ -87,7 +96,7 @@ func Run(c *cli.Context) (err error) {
 	if useLatestTag {
 		assessments = append(assessments, &types.Assessment{
 			Code:     types.AvoidLatestTag,
-			Filename: "image tag",
+			Filename: imageName,
 			Desc:     "Avoid 'latest' tag",
 		})
 	}
@@ -96,7 +105,7 @@ func Run(c *cli.Context) (err error) {
 
 	assessmentMap := types.CreateAssessmentMap(assessments, config.Conf.IgnoreMap, debug)
 	// Store ignore checkpoint code
-	o := c.String("output")
+	o := cmd.String("output")
 	output := os.Stdout
 	if o != "" {
 		if output, err = os.Create(o); err != nil {
@@ -105,13 +114,13 @@ func Run(c *cli.Context) (err error) {
 	}
 
 	var writer report.Writer
-	switch format := c.String("format"); format {
+	switch format := cmd.String("format"); format {
 	case "json":
 		writer = &report.JsonWriter{Output: output, ImageName: imageName}
 	case "sarif":
 		writer = &report.SarifWriter{Output: output}
 	default:
-		writer = &report.ListWriter{Output: output, NoColor: c.Bool("no-color")}
+		writer = &report.ListWriter{Output: output, NoColor: cmd.Bool("no-color")}
 	}
 
 	abend, err := writer.Write(assessmentMap)
@@ -124,6 +133,17 @@ func Run(c *cli.Context) (err error) {
 	}
 
 	return nil
+}
+
+func getDockerSockPath(cmd *cli.Command) string {
+	if cmd.String("host") != "" {
+		return cmd.String("host")
+	}
+	xdgRuntimeDir := os.Getenv("XDG_RUNTIME_DIR")
+	if cmd.Bool("use-xdg") && xdgRuntimeDir != "" {
+		return fmt.Sprintf("unix://%s/docker.sock", xdgRuntimeDir)
+	}
+	return "unix:///var/run/docker.sock"
 }
 
 func useLatest(imageName string) (bool, error) {

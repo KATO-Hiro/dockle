@@ -2,7 +2,7 @@ package manifest
 
 import (
 	"encoding/json"
-	"io/ioutil"
+	"io"
 	"os"
 	"sort"
 	"testing"
@@ -34,11 +34,11 @@ func TestAssess(t *testing.T) {
 
 			assesses: []*types.Assessment{
 				{
-					Code:     types.AvoidRootDefault,
+					Code:     types.UseApkAddNoCache,
 					Filename: ConfigFileName,
 				},
 				{
-					Code:     types.UseApkAddNoCache,
+					Code:     types.AvoidRootDefault,
 					Filename: ConfigFileName,
 				},
 				{
@@ -65,6 +65,42 @@ func TestAssess(t *testing.T) {
 				},
 				{
 					Code:     types.AddHealthcheck,
+					Filename: ConfigFileName,
+				},
+			},
+		},
+		"ADDStatementNotFirst": {
+			path: "./testdata/add_with_arg_statement.json",
+
+			assesses: []*types.Assessment{
+				{
+					Code:     types.AvoidRootDefault,
+					Filename: ConfigFileName,
+				},
+				{
+					Code:     types.AddHealthcheck,
+					Filename: ConfigFileName,
+				},
+			},
+		},
+		"MultiADDStatements": {
+			path: "./testdata/multi_add.json",
+
+			assesses: []*types.Assessment{
+				{
+					Code:     types.AvoidRootDefault,
+					Filename: ConfigFileName,
+				},
+				{
+					Code:     types.AddHealthcheck,
+					Filename: ConfigFileName,
+				},
+				{
+					Code:     types.UseCOPY,
+					Filename: ConfigFileName,
+				},
+				{
+					Code:     types.UseCOPY,
 					Filename: ConfigFileName,
 				},
 			},
@@ -356,6 +392,39 @@ func TestReducableAptGetInstall(t *testing.T) {
 			},
 			expected: false,
 		},
+		"UnReducableDistClean": {
+			cmdSlices: map[int][]string{
+				0: {
+					"apt-get", "install", "-y", "git",
+				},
+				1: {
+					"apt-get", "dist-clean",
+				},
+			},
+			expected: false,
+		},
+		"UnReducableDistclean": {
+			cmdSlices: map[int][]string{
+				0: {
+					"apt-get", "install", "-y", "git",
+				},
+				1: {
+					"apt", "distclean",
+				},
+			},
+			expected: false,
+		},
+		"UnReducableDistCleanWithOptions": {
+			cmdSlices: map[int][]string{
+				0: {
+					"apt-get", "install", "-y", "git",
+				},
+				1: {
+					"apt-get", "-q", "-y", "dist-clean",
+				},
+			},
+			expected: false,
+		},
 	}
 	for testname, v := range tests {
 		actual := reducableAptGetInstall(v.cmdSlices)
@@ -399,6 +468,36 @@ func TestAddStatement(t *testing.T) {
 			t.Errorf("%s want: %t, got %t", testname, v.expected, actual)
 		}
 	}
+}
+
+func TestSensitiveVars(t *testing.T) {
+	if err := compileSensitivePatterns(); err != nil {
+		t.Fatalf("compile sensitive var patterns: %s", err)
+	}
+	var tests = map[string]struct {
+		cmd      string
+		expected bool
+	}{
+		"basic":              {cmd: "/bin/sh -c #(nop) ENV PASS=ADMIN", expected: true},
+		"empty value":        {cmd: "/bin/sh -c #(nop) ENV PASS=", expected: false},
+		"mixed cases":        {cmd: "/bin/sh -c #(nop) ENV PasS=ADMIN", expected: true},
+		"two vars":           {cmd: "/bin/sh -c #(nop) ENV abc=hello password=sensibledata", expected: true},
+		"empty two value":    {cmd: "/bin/sh -c #(nop) ENV ABC=hello PASS= ", expected: false},
+		"run command":        {cmd: `/bin/sh -c SECRET_API_KEY=63AF7AA15067C05616FDDD88A3A2E8F226F0BC06 echo "data"`, expected: true},
+		"run false positive": {cmd: `/bin/sh -c HELLO="PASS=\"notThis\"" echo "false positive"`, expected: false},
+		"run command 2":      {cmd: `/bin/sh -c SECRET=myLittleSecret VAR2=VALUE2 VAR3=VALUE3 echo "Do something"`, expected: true},
+		"secret with space":  {cmd: `/bin/sh -c SECRET="hello world"`, expected: true},
+		"skip space key":     {cmd: `/bin/sh -c echo 'secret = foo;' > test.conf`, expected: false},
+		// TODO : expected must be false
+		//"skip echo string": {cmd: `/bin/sh -c echo 'secret=foo;' > test.conf`, expected: true},
+	}
+	for testname, v := range tests {
+		actual, _, _ := sensitiveVars(v.cmd)
+		if actual != v.expected {
+			t.Errorf("%s want: %t, got %t", testname, v.expected, actual)
+		}
+	}
+
 }
 
 func TestUseDistUpgrade(t *testing.T) {
@@ -506,7 +605,7 @@ func loadImageFromFile(path string) (config types.Image, err error) {
 	if err != nil {
 		return config, err
 	}
-	filebytes, err := ioutil.ReadAll(read)
+	filebytes, err := io.ReadAll(read)
 	if err != nil {
 		return config, err
 	}

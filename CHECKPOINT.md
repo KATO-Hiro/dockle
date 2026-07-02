@@ -3,7 +3,7 @@
 
 ## Docker Image Checkpoints
 
-These checkpoints refered to [CIS Docker 1.13.0 Benchmark v1.0.0](https://www.cisecurity.org/benchmark/docker/).
+These checkpoints referred to [CIS Docker 1.13.0 Benchmark v1.0.0](https://www.cisecurity.org/benchmark/docker/).
 
 ### CIS-DI-0001
 **Create a user for the container**
@@ -88,7 +88,7 @@ RUN apt-get update && apt-get install -y package-a
 
 ```bash
 chmod u-s setuid-file
-chmod u-g setgid-file
+chmod g-s setgid-file
 ```
 
 ### CIS-DI-0009
@@ -195,4 +195,4 @@ These checkpoints referred to [Linux Best Practices](https://www.cyberciti.biz/t
 ### DKL-LI-0003
 **Only put necessary files**
 
-Check `.cache`, `tmp` and so on directories.
+Check `.cache`, `.git` and so on directories.

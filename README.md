@@ -37,8 +37,10 @@ See [Installation](#installation) and [Common Examples](#common-examples)
   - [Debian/Ubuntu](#debianubuntu)
   - [Arch Linux](#arch-linux)
   - [Windows](#windows)
+  - [Microsoft PowerShell 7](#microsoft-powershell-7)
   - [Binary](#binary)
   - [asdf](#asdf)
+  - [mise](#mise)
   - [From source](#from-source)
   - [Use Docker](#use-docker)
 - [Quick Start](#quick-start)
@@ -49,20 +51,29 @@ See [Installation](#installation) and [Common Examples](#common-examples)
   - [Scan an image](#scan-an-image)
   - [Scan an image file](#scan-an-image-file)
   - [Get or Save the results as JSON](#get-or-save-the-results-as-json)
+  - [Get or Save the results as SARIF](#get-or-save-the-results-as-sarif)
   - [Specify exit code](#specify-exit-code)
   - [Specify exit level](#specify-exit-level)
   - [Ignore the specified checkpoints](#ignore-the-specified-checkpoints)
+  - [Accept suspicious `environment variables` / `files` / `file extensions`](#accept-suspicious-environment-variables--files--file-extensions)
+  - [Reject suspicious `environment variables` / `files` / `file extensions`](#reject-suspicious-environment-variables--files--file-extensions)
 - [Continuous Integration](#continuous-integration-ci)
+  - [GitHub Action](#github-action)
   - [Travis CI](#travis-ci)
   - [CircleCI](#circleci)
   - [GitLab CI](#gitlab-ci)
-  - [Authorization for Private Docker Registry](#authorization-for-private-docker-registry) 
-- [Checkpoint Details](CHECKPOINT.md)
-  - CIS's Docker Image Checkpoints
-  - Dockle Checkpoints for Docker
-  - Dockle Checkpoints for Linux
-- [Credits](#credits)
-- [Roadmap](#roadmap)
+  - [Authorization for Private Docker Registry](#authorization-for-private-docker-registry)
+    - [Docker Hub](#docker-hub)
+    - [Amazon ECR (Elastic Container Registry)](#amazon-ecr-elastic-container-registry)
+    - [GCR (Google Container Registry)](#gcr-google-container-registry)
+    - [Self Hosted Registry (BasicAuth)](#self-hosted-registry-basicauth)
+- [Contributors](#contributors)
+  - [Code Contributors](#code-contributors)
+  - [Financial Contributors](#financial-contributors)
+    - [Individuals](#individuals)
+    - [Organizations](#organizations)
+- [License](#license)
+- [Author](#author)
 
 # Features
 
@@ -135,7 +146,13 @@ VERSION=$(
 $ unzip dockle.zip && rm dockle.zip
 $ ./dockle.exe [IMAGE_NAME]
 ```
-
+## Microsoft PowerShell 7
+```bash
+if (((Invoke-WebRequest "https://api.github.com/repos/goodwithtech/dockle/releases/latest").Content) -match '"tag_name":"v(?<ver>[^"]+)"') {
+$VERSION=$Matches.ver &&
+Invoke-WebRequest "https://github.com/goodwithtech/dockle/releases/download/v${VERSION}/dockle_${VERSION}_Windows-64bit.zip" -OutFile dockle.zip &&
+Expand-Archive dockle.zip && Remove-Item dockle.zip }
+```
 ## Binary
 
 You can get the latest version binary from [releases page](https://github.com/goodwithtech/dockle/releases/latest).
@@ -160,6 +177,24 @@ asdf install dockle latest
 
 # Set a version globally (on your ~/.tool-versions file)
 asdf global dockle latest
+
+# Now dockle commands are available
+dockle --version
+```
+
+## mise
+
+You can install dockle with [mise](https://github.com/jdx/mise), the polyglot tool versions manager. With mise already installed, run these commands to install dockle:
+
+```bash
+# Show all installable versions
+mise ls-remote dockle
+
+# Install specific version
+mise install dockle@latest
+
+# Set a version globally
+mise use -g dockle@latest
 
 # Now dockle commands are available
 dockle --version
@@ -269,7 +304,7 @@ $ docker run --rm goodwithtech/dockle:v${DOCKLE_LATEST} [YOUR_IMAGE_NAME]
 | [CIS-DI-0003](CHECKPOINT.md#cis-di-0003) | Do not install unnecessary packages in the container | FATAL
 | [CIS-DI-0004](CHECKPOINT.md#cis-di-0004) | Scan and rebuild the images to include security patches | FATAL
 | [CIS-DI-0005](CHECKPOINT.md#cis-di-0005) | Enable Content trust for Docker | INFO
-| [CIS-DI-0006](CHECKPOINT.md#cis-di-0006) | Add `HEALTHCHECK` instruction to the container image | WARN
+| [CIS-DI-0006](CHECKPOINT.md#cis-di-0006) | Add `HEALTHCHECK` instruction to the container image | INFO
 | [CIS-DI-0007](CHECKPOINT.md#cis-di-0007) | Do not use `update` instructions alone in the Dockerfile | FATAL
 | [CIS-DI-0008](CHECKPOINT.md#cis-di-0008) | Confirm safety of `setuid` and `setgid` files | INFO
 | [CIS-DI-0009](CHECKPOINT.md#cis-di-0009) | Use `COPY` instead of `ADD` in Dockerfile | FATAL
@@ -468,7 +503,9 @@ $ dockle -f sarif -o results.json goodwithtech/test-image:v1
 ```
 
 <details>
-```
+<summary>Result</summary>
+
+```json
 {
   "version": "2.1.0",
   "$schema": "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/master/Schemata/sarif-schema-2.1.0.json",
@@ -647,7 +684,7 @@ The `--ignore, -i` option can ignore specified checkpoints.
 $ dockle -i CIS-DI-0001 -i DKL-DI-0006 [IMAGE_NAME]
 ```
 
-Or, use `DOCKLE_IGNORS`:
+Or, use `DOCKLE_IGNORES`:
 
 ```
 export DOCKLE_IGNORES=CIS-DI-0001,DKL-DI-0006
@@ -664,7 +701,7 @@ CIS-DI-0001
 DKL-DI-0006
 ```
 
-### Accept  suspitious `environment variables` / `files` / `file extensions`
+### Accept suspicious `environment variables` / `files` / `file extensions`
 
 ```bash
 # --accept-key value, --ak value             You can add acceptable keywords.
@@ -680,6 +717,22 @@ dockle -ae pem -ae log [IMAGE_NAME]
 or DOCKLE_ACCEPT_FILE_EXTENSIONS=pem,log dockle [IMAGE_NAME]
 ```
 
+### Reject suspicious `environment variables` / `files` / `file extensions`
+
+```bash
+# --sensitive-word value, --sw value             You can add acceptable keywords.
+dockle -sw PRIVATE [IMAGE_NAME]
+or DOCKLE_ACCEPT_KEYS=GPG_KEY,KEYCLOAK_VERSION dockle [IMAGE_NAME]
+
+# --sensitive-file value, --sf value            You can add acceptable file names.
+dockle -sf .env [IMAGE_NAME]
+or DOCKLE_REJECT_FILES=.env dockle [IMAGE_NAME]
+
+# --sensitive-file-extension value, --se value  You can add acceptable file extensions.
+dockle -se pfx [IMAGE_NAME]
+or DOCKLE_REJECT_FILE_EXTENSIONS=pfx dockle [IMAGE_NAME]
+```
+
 ## Continuous Integration (CI)
 
 You can scan your built image with `Dockle` in Travis CI/CircleCI.
@@ -689,6 +742,21 @@ In these examples, the test will fail with if any warnings were found.
 Though, you can ignore the specified target checkpoints by using `.dockleignore` file.
 
 Or, if you just want the results to display and not let the test fail for this, specify `--exit-code` to `0` in `dockle` command.
+
+### GitHub Action
+
+We provide [goodwithtech/dockle-action](https://github.com/goodwithtech/dockle-action).
+
+```yaml
+- uses: goodwithtech/dockle-action@main
+  with:
+    image: 'target'
+    format: 'list'
+    exit-code: '1'
+    exit-level: 'warn'
+    ignore: 'CIS-DI-0001,DKL-DI-0006'
+```
+
 
 ### Travis CI
 
@@ -851,10 +919,6 @@ export DOCKLE_PASSWORD={PASSWORD}
 export DOCKLE_NON_SSL=true
 ```
 
-# Credits
-
-Special Thanks to [@knqyf263](https://github.com/knqyf263) (Teppei Fukuda) and [Trivy](https://github.com/knqyf263/trivy)
-
 ## Contributors
 
 ### Code Contributors
@@ -874,7 +938,7 @@ Become a financial contributor and help us sustain our community. [[Contribute](
 
 Support this project with your organization. Your logo will show up here with a link to your website. [[Contribute](https://opencollective.com/dockle/contribute)]
 
-<a href="https://opencollective.com/dockle/organization/0/website"><img src="https://opencollective.com/dockle/organization/0/avatar.svg"></a>
+<a href="https://www.tines.com/?utm_source=oss&utm_medium=sponsorship&utm_campaign=dockle"><img src="imgs/tines.png"></a>
 <a href="https://opencollective.com/dockle/organization/1/website"><img src="https://opencollective.com/dockle/organization/1/avatar.svg"></a>
 <a href="https://opencollective.com/dockle/organization/2/website"><img src="https://opencollective.com/dockle/organization/2/avatar.svg"></a>
 <a href="https://opencollective.com/dockle/organization/3/website"><img src="https://opencollective.com/dockle/organization/3/avatar.svg"></a>
@@ -885,37 +949,20 @@ Support this project with your organization. Your logo will show up here with a 
 <a href="https://opencollective.com/dockle/organization/8/website"><img src="https://opencollective.com/dockle/organization/8/avatar.svg"></a>
 <a href="https://opencollective.com/dockle/organization/9/website"><img src="https://opencollective.com/dockle/organization/9/avatar.svg"></a>
 
+### OSS Program Supporters
+
+This project uses services provided through the following OSS programs.
+
+<a href="https://flatt.tech/oss/gmo/trampoline" target="_blank"><img src="https://flatt.tech/assets/images/badges/gmo-oss.svg" height="24px"/></a>
+<a href="https://github.com/1Password/for-open-source" target="_blank"><img src="https://img.shields.io/badge/1Password-OSS%20Program-0094F5?logo=1password&logoColor=white" height="24px"/></a>
+
 # License
 
-- AGPLv3
+- Apache License 2.0
+
 
 # Author
 
 [@tomoyamachi](https://github.com/tomoyamachi) (Tomoya Amachi)
 
-# Roadmap
-
-- [x] JSON output
-- [ ] Check php.ini file
-- [ ] Check nginx.conf file
-- [ ] create CI badges
-- Check /etc/hosts
-  - [ ] duplicates
-  - [ ] hostname
-  - [ ] localhost
-- Packages
-  - [ ] Package managers
-- File Permissions
-  - [ ] Insecure permission
-- Image Size
-  - [ ] check large size container
-
-## if running docker daemon...
-
-- Networking
-  - [ ] `docker port container` if docker running
-  - [ ] by file
-    - `/proc/1/net/tcp` : openning port (if running)
-- Volume mount
-  - dangerous mount
-    - `/boot`, `/dev`, `/etc`, `/lib`
+Special Thanks to [@knqyf263](https://github.com/knqyf263) (Teppei Fukuda) and [Trivy](https://github.com/knqyf263/trivy)

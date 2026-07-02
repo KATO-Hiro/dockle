@@ -6,44 +6,45 @@ on:
       - 'v*'
   pull_request:
 
+permissions:
+  contents: write
+  packages: write
+
 jobs:
-  build-and-scan:
+  build-and-release:
     runs-on: ubuntu-latest
     env:
       DOCKER_CLI_EXPERIMENTAL: "enabled"
     steps:
-      - uses: actions/checkout@master
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
           fetch-depth: 0
-      - uses: actions/setup-go@v2
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
         with:
-          go-version: '1.16'
-      - uses: actions/cache@v2.1.4
-        with:
-          path: ~/go/pkg/mod
-          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
-          restore-keys: |
-            ${{ runner.os }}-go-
+          go-version-file: 'go.mod'
       - run: |
           go test ./...
         env:
           CGO_ENABLED: 0
-      -
-        name: Docker Login
-        env:
-          DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
-          DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}
-          GITHUB_TOKEN: ${{ secrets.GH_PAT }}
-        run: |
-          echo "${DOCKER_PASSWORD}" | docker login --username "${DOCKER_USERNAME}" --password-stdin
-          echo "${GITHUB_TOKEN}" | docker login ghcr.io --username $GITHUB_ACTOR --password-stdin
+      - name: Login to docker.io registry
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+      - name: Login to ghcr.io registry
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
+        with:
+          registry: ghcr.io
+          username: goodwithtech
+          password: ${{ secrets.GH_PAT }}
       -
         name: Run GoReleaser
         if: success() && startsWith(github.ref, 'refs/tags/v')
-        uses: goreleaser/goreleaser-action@v2
+        uses: goreleaser/goreleaser-action@e435ccd777264be153ace6237001ef4d979d3a7a # v6.4.0
         with:
-          version: latest
-          args: release --rm-dist
+          distribution: goreleaser
+          version: "~> v2"
+          args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GH_PAT }}
       -

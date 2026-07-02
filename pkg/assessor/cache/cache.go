@@ -6,24 +6,23 @@ import (
 	"path/filepath"
 	"strings"
 
-	deckodertypes "github.com/goodwithtech/deckoder/types"
-	"github.com/goodwithtech/deckoder/utils"
+	"github.com/goodwithtech/dockle/pkg/deckoder/utils"
 
 	"github.com/goodwithtech/dockle/pkg/log"
 	"github.com/goodwithtech/dockle/pkg/types"
 )
 
 var (
-	reqFiles = []string{"Dockerfile", "docker-compose.yml", ".vimrc"}
+	reqFiles = []string{"Dockerfile", "docker-compose.yml", ".vimrc", ".DS_Store"}
 	// Directory ends "/" separator
-	reqDirs            = []string{".cache/", "tmp/", ".git/", ".vscode/", ".idea/", ".npm/"}
+	reqDirs            = []string{".cache/", ".aws/", ".azure/", ".gcp/", ".git/", ".vscode/", ".idea/", ".npm/"}
 	uncontrollableDirs = []string{"node_modules/", "vendor/"}
 	detectedDir        = map[string]struct{}{}
 )
 
 type CacheAssessor struct{}
 
-func (a CacheAssessor) Assess(fileMap deckodertypes.FileMap) ([]*types.Assessment, error) {
+func (a CacheAssessor) Assess(fileMap types.FileMap) ([]*types.Assessment, error) {
 	log.Logger.Debug("Start scan : cache files")
 	assesses := []*types.Assessment{}
 	for filename := range fileMap {
